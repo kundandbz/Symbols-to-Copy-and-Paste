@@ -1,0 +1,34 @@
+<resources>
+    <string name="app_name">Symbols to Copy &amp; Paste</string>
+    <string name="website_domain">Symbolstocopyandpaste.com</string>
+    <string name="nav_symbols">Symbols</string>
+    <string name="nav_emojis">Emojis</string>
+    <string name="nav_kaomoji">Kaomoji</string>
+    <string name="nav_lenny">Lenny</string>
+    <string name="nav_tools">Tools</string>
+    <string name="nav_vault">Vault</string>
+    <string name="search_symbols_hint">Search stars, hearts, arrows, currency, U+2727…</string>
+    <string name="search_emojis_hint">Search smileys, hearts, animals, food, flags…</string>
+    <string name="search_kaomoji_hint">Search happy, love, crying, cat, hug, shrug…</string>
+    <string name="search_lenny_hint">Search smirk, wink, table flip, flex, shrug…</string>
+    <string name="composer_placeholder">Tap symbols to combine them here…</string>
+    <string name="copy_success_message">Copied to clipboard</string>
+    <string name="empty_vault_favorites_title">No saved favorites yet</string>
+    <string name="empty_vault_favorites_subtitle">Tap the heart on any symbol, emoji, kaomoji, or Lenny face to keep it ready.</string>
+    <string name="empty_vault_recent_title">Your clipboard history is clear</string>
+    <string name="empty_vault_recent_subtitle">Every symbol, emoji, or styled text you copy appears here for 1-tap re-copy.</string>
+    <string name="empty_search_title">No matching items</string>
+    <string name="empty_search_subtitle">Try searching by keyword, mood, category, or Unicode codepoint.</string>
+    <string name="website_url">https://www.symbolstocopyandpaste.com/</string>
+    <string name="web_version_short">Online</string>
+    <string name="web_version_label">Web Version</string>
+    <string name="web_version_open_desc">Open online web version at Symbolstocopyandpaste.com</string>
+    <string name="theme_customize_title">Appearance &amp; Theme</string>
+    <string name="theme_customize_desc">Choose theme color and dark or light mode</string>
+    <string name="nav_favorites_desc">Favorites &amp; Vault</string>
+    <string name="favorites_quick_title">Your Favorites</string>
+    <string name="favorites_manage_all">View All</string>
+    <string name="favorites_empty_filter_title">No favorite items yet</string>
+    <string name="favorites_empty_filter_subtitle">Tap the heart on any symbol, emoji, kaomoji, or Lenny face to pin it here for quick access.</string>
+    <string name="favorites_search_hint">Search saved favorites…</string>
+</resources>

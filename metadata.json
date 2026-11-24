@@ -1,0 +1,6 @@
+{
+  "name": "Symbols to Copy & Paste",
+  "description": "Official companion app for Symbolstocopyandpaste.com — browse, search, style, and copy Unicode symbols, emojis, kaomoji, Lenny faces, and fancy text tools.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
