@@ -44,15 +44,47 @@ object UnicodeTextUtils {
     if (input.isEmpty()) return emptyList()
     val iterator = BreakIterator.getCharacterInstance()
     iterator.setText(input)
-    val result = mutableListOf<String>()
+    val raw = mutableListOf<String>()
     var start = iterator.first()
     var end = iterator.next()
     while (end != BreakIterator.DONE) {
-      result.add(input.substring(start, end))
+      raw.add(input.substring(start, end))
       start = end
       end = iterator.next()
     }
-    return result
+
+    // Merge extended emoji sequences (ZWJ, variation selectors, skin tones, keycaps, tags, flag pairs)
+    // so behavior is identical on JDK 17, JDK 21, and older Android ICU versions (API 24+).
+    val merged = mutableListOf<String>()
+    for (segment in raw) {
+      if (merged.isEmpty()) {
+        merged.add(segment)
+        continue
+      }
+      val prev = merged.last()
+      val nextFirstCp = segment.codePointAt(0)
+      val shouldMerge = prev.endsWith("\u200D") ||
+        nextFirstCp == 0x200D ||
+        nextFirstCp == 0xFE0E ||
+        nextFirstCp == 0xFE0F ||
+        nextFirstCp == 0x20E3 ||
+        nextFirstCp in 0x1F3FB..0x1F3FF ||
+        nextFirstCp in 0xE0020..0xE007F ||
+        (isSingleRegionalIndicator(prev) && isSingleRegionalIndicator(segment))
+
+      if (shouldMerge) {
+        merged[merged.lastIndex] = prev + segment
+      } else {
+        merged.add(segment)
+      }
+    }
+    return merged
+  }
+
+  private fun isSingleRegionalIndicator(segment: String): Boolean {
+    if (segment.isEmpty()) return false
+    val cp = segment.codePointAt(0)
+    return cp in 0x1F1E6..0x1F1FF && Character.charCount(cp) == segment.length
   }
 
   fun reverseGraphemes(input: String): String {
@@ -62,15 +94,9 @@ object UnicodeTextUtils {
 
   fun removeLastGrapheme(input: String): String {
     if (input.isEmpty()) return input
-    val iterator = BreakIterator.getCharacterInstance()
-    iterator.setText(input)
-    val end = iterator.last()
-    val prev = iterator.previous()
-    return if (prev != BreakIterator.DONE && prev >= 0 && prev < end) {
-      input.substring(0, prev)
-    } else {
-      ""
-    }
+    val graphemes = splitGraphemes(input)
+    if (graphemes.size <= 1) return ""
+    return graphemes.dropLast(1).joinToString("")
   }
 
   fun isInvisibleText(text: String): Boolean {

@@ -98,6 +98,7 @@ class ExampleUnitTest {
     assertEquals("🔥BA", BioToolsEngine.toReversedText("AB🔥"))
     assertEquals("Hi ", UnicodeTextUtils.removeLastGrapheme("Hi ❤️‍🔥"))
     assertEquals("Hi ", UnicodeTextUtils.removeLastGrapheme("Hi 🏳️‍🌈"))
+    assertEquals("🇺🇸", UnicodeTextUtils.removeLastGrapheme("🇺🇸🇯🇵"))
 
     assertTrue(UnicodeTextUtils.isInvisibleText("\u3164"))
     assertTrue(UnicodeTextUtils.isInvisibleText("\u2800\n\u2800"))
