@@ -143,6 +143,12 @@ private val primaryNavDestinations = listOf(
   ),
 )
 
+private val crossTabTrayRoutes = setOf(
+  SymbolPadRoutes.EMOJIS,
+  SymbolPadRoutes.KAOMOJI,
+  SymbolPadRoutes.LENNY,
+)
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SymbolPadApp(
@@ -152,51 +158,56 @@ fun SymbolPadApp(
   val navController = rememberNavController()
   val navBackStackEntry by navController.currentBackStackEntryAsState()
   val currentDestination = navBackStackEntry?.destination
-  val isVaultOpen = currentDestination?.route == SymbolPadRoutes.VAULT
+  val currentRoute = currentDestination?.route
+  val isVaultOpen = currentRoute == SymbolPadRoutes.VAULT
 
-  val symbolsState by viewModel.symbolsState.collectAsStateWithLifecycle()
-  val emojiState by viewModel.emojiState.collectAsStateWithLifecycle()
-  val kaomojiState by viewModel.kaomojiState.collectAsStateWithLifecycle()
-  val lennyState by viewModel.lennyState.collectAsStateWithLifecycle()
-  val lennyBuilder by viewModel.lennyBuilder.collectAsStateWithLifecycle()
-  val toolsState by viewModel.toolsState.collectAsStateWithLifecycle()
-  val vaultState by viewModel.vaultState.collectAsStateWithLifecycle()
-  val detailEntry by viewModel.detailEntry.collectAsStateWithLifecycle()
-  val copyBanner by viewModel.copyBanner.collectAsStateWithLifecycle()
-  val themeSettings by viewModel.themeSettings.collectAsStateWithLifecycle()
   var showThemeSheet by remember { mutableStateOf(false) }
-
   val websiteUrl = stringResource(R.string.website_url)
 
-  val copyToClipboard: (String) -> Unit = { text ->
-    val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-    clipboard.setPrimaryClip(ClipData.newPlainText("Symbolstocopyandpaste.com", text))
-  }
-
-  val openWebVersion: () -> Unit = {
-    try {
-      val intent = Intent(Intent.ACTION_VIEW, Uri.parse(websiteUrl))
-      context.startActivity(intent)
-    } catch (_: ActivityNotFoundException) {
-      viewModel.copyText(websiteUrl, "Web Version Link", copyToClipboard)
+  val copyToClipboard = remember(context) {
+    { text: String ->
+      val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+      clipboard.setPrimaryClip(ClipData.newPlainText("Symbolstocopyandpaste.com", text))
     }
   }
 
-  val shareText: (String) -> Unit = { text ->
-    val intent = Intent(Intent.ACTION_SEND).apply {
-      type = "text/plain"
-      putExtra(Intent.EXTRA_TEXT, text)
-    }
-    context.startActivity(Intent.createChooser(intent, "Share symbol or text"))
-  }
-
-  val navigateToPrimaryTab: (String) -> Unit = { route ->
-    navController.navigate(route) {
-      popUpTo(navController.graph.findStartDestination().id) {
-        saveState = true
+  val openWebVersion = remember(context, websiteUrl, viewModel, copyToClipboard) {
+    {
+      try {
+        val intent = Intent(Intent.ACTION_VIEW, Uri.parse(websiteUrl))
+        context.startActivity(intent)
+      } catch (_: ActivityNotFoundException) {
+        viewModel.copyText(websiteUrl, "Web Version Link", copyToClipboard)
       }
-      launchSingleTop = true
-      restoreState = true
+    }
+  }
+
+  val shareText = remember(context) {
+    { text: String ->
+      val intent = Intent(Intent.ACTION_SEND).apply {
+        type = "text/plain"
+        putExtra(Intent.EXTRA_TEXT, text)
+      }
+      context.startActivity(Intent.createChooser(intent, "Share symbol or text"))
+    }
+  }
+
+  val navigateToPrimaryTab = remember(navController) {
+    { route: String ->
+      navController.navigate(route) {
+        popUpTo(navController.graph.findStartDestination().id) {
+          saveState = true
+        }
+        launchSingleTop = true
+        restoreState = true
+      }
+    }
+  }
+
+  val openFavoritesVault = remember(viewModel, navController) {
+    {
+      viewModel.onVaultTabSelected(0)
+      navController.navigate(SymbolPadRoutes.VAULT) { launchSingleTop = true }
     }
   }
 
@@ -273,28 +284,10 @@ fun SymbolPadApp(
                   contentDescription = stringResource(R.string.theme_customize_title),
                 )
               }
-              IconButton(
-                onClick = {
-                  viewModel.onVaultTabSelected(0)
-                  navController.navigate(SymbolPadRoutes.VAULT) { launchSingleTop = true }
-                },
-                modifier = Modifier.testTag("nav_vault"),
-              ) {
-                val favCount = vaultState.totalFavoritesCount
-                BadgedBox(
-                  badge = {
-                    if (favCount > 0) {
-                      Badge { Text(if (favCount > 99) "99+" else favCount.toString()) }
-                    }
-                  },
-                ) {
-                  Icon(
-                    imageVector = if (favCount > 0) Icons.Filled.Favorite else Icons.Outlined.FavoriteBorder,
-                    contentDescription = stringResource(R.string.nav_favorites_desc),
-                    tint = if (favCount > 0) MaterialTheme.colorScheme.tertiary else MaterialTheme.colorScheme.onBackground,
-                  )
-                }
-              }
+              TopBarFavoritesButton(
+                viewModel = viewModel,
+                onClick = openFavoritesVault,
+              )
             },
             colors = TopAppBarDefaults.topAppBarColors(
               containerColor = MaterialTheme.colorScheme.background,
@@ -369,29 +362,18 @@ fun SymbolPadApp(
             .fillMaxHeight(),
           contentAlignment = Alignment.TopCenter,
         ) {
-          val currentRoute = currentDestination?.route
-          val showCrossTabBuildTray = !isVaultOpen &&
-            currentRoute in setOf(SymbolPadRoutes.EMOJIS, SymbolPadRoutes.KAOMOJI, SymbolPadRoutes.LENNY) &&
-            symbolsState.isBuildMode
-
           Column(
             modifier = Modifier
               .fillMaxSize()
               .widthIn(max = 920.dp),
           ) {
-            if (showCrossTabBuildTray) {
-              CompactBuildTrayBar(
-                composerText = symbolsState.composerText,
-                isBuildMode = symbolsState.isBuildMode,
-                onBackspace = viewModel::backspaceComposer,
-                onCopyAll = {
-                  if (symbolsState.composerText.isNotEmpty()) {
-                    viewModel.copyText(symbolsState.composerText, "Custom Combo", copyToClipboard)
-                  }
-                },
-                onExitBuildMode = { viewModel.toggleBuildMode(false) },
+            if (!isVaultOpen && currentRoute in crossTabTrayRoutes) {
+              CrossTabBuildTrayHost(
+                viewModel = viewModel,
+                copyToClipboard = copyToClipboard,
               )
             }
+
             NavHost(
               navController = navController,
               startDestination = SymbolPadRoutes.SYMBOLS,
@@ -399,121 +381,140 @@ fun SymbolPadApp(
                 .fillMaxWidth()
                 .weight(1f),
             ) {
-            composable(SymbolPadRoutes.SYMBOLS) {
-              SymbolsScreen(
-                state = symbolsState,
-                favoriteGlyphs = vaultState.favoriteGlyphs,
-                quickFavorites = vaultState.mostUsedFavorites,
-                onSearchQueryChange = viewModel::onSymbolsQueryChange,
-                onCategorySelected = viewModel::onSymbolsCategorySelected,
-                onToggleBuildMode = viewModel::toggleBuildMode,
-                onComposerTextChange = viewModel::onComposerTextChange,
-                onBackspaceComposer = viewModel::backspaceComposer,
-                onClearComposer = viewModel::clearComposer,
-                onSaveComposerSnippet = { content ->
-                  viewModel.saveSnippet("Custom Combo", content, "Combo Tray")
-                },
-                onEntryTapped = { entry -> viewModel.onEntryTapped(entry, copyToClipboard) },
-                onEntryLongPressed = viewModel::openEntryDetail,
-                onToggleFavorite = viewModel::toggleFavorite,
-                onQuickFavoriteTapped = { fav -> viewModel.onFavoriteTapped(fav, copyToClipboard) },
-                onOpenFavorites = {
-                  viewModel.onVaultTabSelected(0)
-                  navController.navigate(SymbolPadRoutes.VAULT) { launchSingleTop = true }
-                },
-                onCopyText = { text, label -> viewModel.copyText(text, label, copyToClipboard) },
-                onOpenWebVersion = openWebVersion,
-              )
-            }
+              composable(SymbolPadRoutes.SYMBOLS) {
+                val symbolsState by viewModel.symbolsState.collectAsStateWithLifecycle()
+                val composerState by viewModel.composerState.collectAsStateWithLifecycle()
+                val favoriteGlyphs by viewModel.favoriteGlyphs.collectAsStateWithLifecycle()
+                val quickFavorites by viewModel.mostUsedFavorites.collectAsStateWithLifecycle()
 
-            composable(SymbolPadRoutes.EMOJIS) {
-              EmojiScreen(
-                state = emojiState,
-                favoriteGlyphs = vaultState.favoriteGlyphs,
-                isBuildMode = symbolsState.isBuildMode,
-                onSearchQueryChange = viewModel::onEmojiQueryChange,
-                onCategorySelected = viewModel::onEmojiCategorySelected,
-                onEntryTapped = { entry -> viewModel.onEntryTapped(entry, copyToClipboard) },
-                onEntryLongPressed = viewModel::openEntryDetail,
-                onToggleFavorite = viewModel::toggleFavorite,
-              )
-            }
+                SymbolsScreen(
+                  state = symbolsState,
+                  composerState = composerState,
+                  favoriteGlyphs = favoriteGlyphs,
+                  quickFavorites = quickFavorites,
+                  onSearchQueryChange = viewModel::onSymbolsQueryChange,
+                  onCategorySelected = viewModel::onSymbolsCategorySelected,
+                  onToggleBuildMode = viewModel::toggleBuildMode,
+                  onComposerTextChange = viewModel::onComposerTextChange,
+                  onBackspaceComposer = viewModel::backspaceComposer,
+                  onClearComposer = viewModel::clearComposer,
+                  onSaveComposerSnippet = { content ->
+                    viewModel.saveSnippet("Custom Combo", content, "Combo Tray")
+                  },
+                  onEntryTapped = { entry -> viewModel.onEntryTapped(entry, copyToClipboard) },
+                  onEntryLongPressed = viewModel::openEntryDetail,
+                  onToggleFavorite = viewModel::toggleFavorite,
+                  onQuickFavoriteTapped = { fav -> viewModel.onFavoriteTapped(fav, copyToClipboard) },
+                  onOpenFavorites = openFavoritesVault,
+                  onCopyText = { text, label -> viewModel.copyText(text, label, copyToClipboard) },
+                  onOpenWebVersion = openWebVersion,
+                )
+              }
 
-            composable(SymbolPadRoutes.KAOMOJI) {
-              KaomojiScreen(
-                state = kaomojiState,
-                favoriteGlyphs = vaultState.favoriteGlyphs,
-                isBuildMode = symbolsState.isBuildMode,
-                onSearchQueryChange = viewModel::onKaomojiQueryChange,
-                onCategorySelected = viewModel::onKaomojiCategorySelected,
-                onEntryTapped = { entry -> viewModel.onEntryTapped(entry, copyToClipboard) },
-                onEntryLongPressed = viewModel::openEntryDetail,
-                onToggleFavorite = viewModel::toggleFavorite,
-              )
-            }
+              composable(SymbolPadRoutes.EMOJIS) {
+                val emojiState by viewModel.emojiState.collectAsStateWithLifecycle()
+                val favoriteGlyphs by viewModel.favoriteGlyphs.collectAsStateWithLifecycle()
+                val composerState by viewModel.composerState.collectAsStateWithLifecycle()
 
-            composable(SymbolPadRoutes.LENNY) {
-              LennyScreen(
-                state = lennyState,
-                builderState = lennyBuilder,
-                favoriteGlyphs = vaultState.favoriteGlyphs,
-                isBuildMode = symbolsState.isBuildMode,
-                onSearchQueryChange = viewModel::onLennyQueryChange,
-                onCategorySelected = viewModel::onLennyCategorySelected,
-                onSelectEar = viewModel::onSelectLennyEar,
-                onSelectEye = viewModel::onSelectLennyEye,
-                onSelectMouth = viewModel::onSelectLennyMouth,
-                onSelectAccessory = viewModel::onSelectLennyAccessory,
-                onRandomizeLenny = viewModel::randomizeLenny,
-                onCopyText = { text, label -> viewModel.copyText(text, label, copyToClipboard) },
-                onSaveSnippet = { title, content -> viewModel.saveSnippet(title, content, "Lenny Face") },
-                onEntryTapped = { entry -> viewModel.onEntryTapped(entry, copyToClipboard) },
-                onEntryLongPressed = viewModel::openEntryDetail,
-                onToggleFavorite = viewModel::toggleFavorite,
-              )
-            }
+                EmojiScreen(
+                  state = emojiState,
+                  favoriteGlyphs = favoriteGlyphs,
+                  isBuildMode = composerState.isBuildMode,
+                  onSearchQueryChange = viewModel::onEmojiQueryChange,
+                  onCategorySelected = viewModel::onEmojiCategorySelected,
+                  onEntryTapped = { entry -> viewModel.onEntryTapped(entry, copyToClipboard) },
+                  onEntryLongPressed = viewModel::openEntryDetail,
+                  onToggleFavorite = viewModel::toggleFavorite,
+                )
+              }
 
-            composable(SymbolPadRoutes.TOOLS) {
-              ToolsScreen(
-                state = toolsState,
-                onSelectToolTab = viewModel::onToolTabSelected,
-                onFontInputChange = viewModel::onFontInputChange,
-                onSelectFontFrame = viewModel::onSelectFontFrame,
-                onBioInputChange = viewModel::onBioInputChange,
-                onSpacerLineCountChange = viewModel::onSpacerLineCountChange,
-                onConverterInputChange = viewModel::onConverterInputChange,
-                onToggleMorseDecode = viewModel::onToggleMorseDecode,
-                onCopyText = { text, label -> viewModel.copyText(text, label, copyToClipboard) },
-                onSaveSnippet = viewModel::saveSnippet,
-                onShareText = shareText,
-              )
-            }
+              composable(SymbolPadRoutes.KAOMOJI) {
+                val kaomojiState by viewModel.kaomojiState.collectAsStateWithLifecycle()
+                val favoriteGlyphs by viewModel.favoriteGlyphs.collectAsStateWithLifecycle()
+                val composerState by viewModel.composerState.collectAsStateWithLifecycle()
 
-            composable(SymbolPadRoutes.VAULT) {
-              VaultScreen(
-                state = vaultState,
-                onTabSelected = viewModel::onVaultTabSelected,
-                onFavoriteSortModeSelected = viewModel::onFavoriteSortModeSelected,
-                onFavoritesQueryChange = viewModel::onFavoritesQueryChange,
-                onCopyText = { text, label -> viewModel.copyText(text, label, copyToClipboard) },
-                onRemoveFavorite = viewModel::removeFavorite,
-                onClearHistory = viewModel::clearRecentHistory,
-                onSaveNewSnippet = { title, content -> viewModel.saveSnippet(title, content, "Custom") },
-                onDeleteSnippet = viewModel::deleteSnippet,
-                onShareText = shareText,
-                onNavigateToExplore = {
-                  navController.popBackStack()
-                  navigateToPrimaryTab(SymbolPadRoutes.SYMBOLS)
-                },
-                onBack = { navController.popBackStack() },
-              )
-            }
+                KaomojiScreen(
+                  state = kaomojiState,
+                  favoriteGlyphs = favoriteGlyphs,
+                  isBuildMode = composerState.isBuildMode,
+                  onSearchQueryChange = viewModel::onKaomojiQueryChange,
+                  onCategorySelected = viewModel::onKaomojiCategorySelected,
+                  onEntryTapped = { entry -> viewModel.onEntryTapped(entry, copyToClipboard) },
+                  onEntryLongPressed = viewModel::openEntryDetail,
+                  onToggleFavorite = viewModel::toggleFavorite,
+                )
+              }
+
+              composable(SymbolPadRoutes.LENNY) {
+                val lennyState by viewModel.lennyState.collectAsStateWithLifecycle()
+                val lennyBuilder by viewModel.lennyBuilder.collectAsStateWithLifecycle()
+                val favoriteGlyphs by viewModel.favoriteGlyphs.collectAsStateWithLifecycle()
+                val composerState by viewModel.composerState.collectAsStateWithLifecycle()
+
+                LennyScreen(
+                  state = lennyState,
+                  builderState = lennyBuilder,
+                  favoriteGlyphs = favoriteGlyphs,
+                  isBuildMode = composerState.isBuildMode,
+                  onSearchQueryChange = viewModel::onLennyQueryChange,
+                  onCategorySelected = viewModel::onLennyCategorySelected,
+                  onSelectEar = viewModel::onSelectLennyEar,
+                  onSelectEye = viewModel::onSelectLennyEye,
+                  onSelectMouth = viewModel::onSelectLennyMouth,
+                  onSelectAccessory = viewModel::onSelectLennyAccessory,
+                  onRandomizeLenny = viewModel::randomizeLenny,
+                  onCopyText = { text, label -> viewModel.copyText(text, label, copyToClipboard) },
+                  onSaveSnippet = { title, content -> viewModel.saveSnippet(title, content, "Lenny Face") },
+                  onEntryTapped = { entry -> viewModel.onEntryTapped(entry, copyToClipboard) },
+                  onEntryLongPressed = viewModel::openEntryDetail,
+                  onToggleFavorite = viewModel::toggleFavorite,
+                )
+              }
+
+              composable(SymbolPadRoutes.TOOLS) {
+                val toolsState by viewModel.toolsState.collectAsStateWithLifecycle()
+
+                ToolsScreen(
+                  state = toolsState,
+                  onSelectToolTab = viewModel::onToolTabSelected,
+                  onFontInputChange = viewModel::onFontInputChange,
+                  onSelectFontFrame = viewModel::onSelectFontFrame,
+                  onBioInputChange = viewModel::onBioInputChange,
+                  onSpacerLineCountChange = viewModel::onSpacerLineCountChange,
+                  onConverterInputChange = viewModel::onConverterInputChange,
+                  onToggleMorseDecode = viewModel::onToggleMorseDecode,
+                  onCopyText = { text, label -> viewModel.copyText(text, label, copyToClipboard) },
+                  onSaveSnippet = viewModel::saveSnippet,
+                  onShareText = shareText,
+                )
+              }
+
+              composable(SymbolPadRoutes.VAULT) {
+                val vaultState by viewModel.vaultState.collectAsStateWithLifecycle()
+
+                VaultScreen(
+                  state = vaultState,
+                  onTabSelected = viewModel::onVaultTabSelected,
+                  onFavoriteSortModeSelected = viewModel::onFavoriteSortModeSelected,
+                  onFavoritesQueryChange = viewModel::onFavoritesQueryChange,
+                  onCopyText = { text, label -> viewModel.copyText(text, label, copyToClipboard) },
+                  onRemoveFavorite = viewModel::removeFavorite,
+                  onClearHistory = viewModel::clearRecentHistory,
+                  onSaveNewSnippet = { title, content -> viewModel.saveSnippet(title, content, "Custom") },
+                  onDeleteSnippet = viewModel::deleteSnippet,
+                  onShareText = shareText,
+                  onNavigateToExplore = {
+                    navController.popBackStack()
+                    navigateToPrimaryTab(SymbolPadRoutes.SYMBOLS)
+                  },
+                  onBack = { navController.popBackStack() },
+                )
+              }
             }
           }
 
-          FloatingCopyBanner(
-            banner = copyBanner,
-            onDismiss = viewModel::dismissCopyBanner,
+          FloatingCopyBannerHost(
+            viewModel = viewModel,
             modifier = Modifier
               .align(Alignment.BottomCenter)
               .padding(bottom = 16.dp),
@@ -522,19 +523,14 @@ fun SymbolPadApp(
       }
     }
 
-    detailEntry?.let { entry ->
-      CatalogDetailSheet(
-        item = entry,
-        isFavorite = vaultState.favoriteGlyphs.contains(entry.glyph),
-        onDismiss = viewModel::dismissEntryDetail,
-        onCopy = { viewModel.copyText(entry.glyph, entry.name, copyToClipboard) },
-        onAppendToTray = { viewModel.appendEntryToTray(entry) },
-        onToggleFavorite = { viewModel.toggleFavorite(entry) },
-        onShare = { shareText(entry.glyph) },
-      )
-    }
+    CatalogDetailSheetHost(
+      viewModel = viewModel,
+      copyToClipboard = copyToClipboard,
+      shareText = shareText,
+    )
 
     if (showThemeSheet) {
+      val themeSettings by viewModel.themeSettings.collectAsStateWithLifecycle()
       ThemeCustomizationSheet(
         settings = themeSettings,
         onSelectMode = viewModel::onThemeModeSelected,
@@ -543,5 +539,86 @@ fun SymbolPadApp(
         onDismiss = { showThemeSheet = false },
       )
     }
+  }
+}
+
+@Composable
+private fun TopBarFavoritesButton(
+  viewModel: SymbolPadViewModel,
+  onClick: () -> Unit,
+) {
+  val favCount by viewModel.favoritesCount.collectAsStateWithLifecycle()
+  IconButton(
+    onClick = onClick,
+    modifier = Modifier.testTag("nav_vault"),
+  ) {
+    BadgedBox(
+      badge = {
+        if (favCount > 0) {
+          Badge { Text(if (favCount > 99) "99+" else favCount.toString()) }
+        }
+      },
+    ) {
+      Icon(
+        imageVector = if (favCount > 0) Icons.Filled.Favorite else Icons.Outlined.FavoriteBorder,
+        contentDescription = stringResource(R.string.nav_favorites_desc),
+        tint = if (favCount > 0) MaterialTheme.colorScheme.tertiary else MaterialTheme.colorScheme.onBackground,
+      )
+    }
+  }
+}
+
+@Composable
+private fun CrossTabBuildTrayHost(
+  viewModel: SymbolPadViewModel,
+  copyToClipboard: (String) -> Unit,
+) {
+  val composerState by viewModel.composerState.collectAsStateWithLifecycle()
+  if (composerState.isBuildMode) {
+    CompactBuildTrayBar(
+      composerText = composerState.composerText,
+      isBuildMode = composerState.isBuildMode,
+      onBackspace = viewModel::backspaceComposer,
+      onCopyAll = {
+        if (composerState.composerText.isNotEmpty()) {
+          viewModel.copyText(composerState.composerText, "Custom Combo", copyToClipboard)
+        }
+      },
+      onExitBuildMode = { viewModel.toggleBuildMode(false) },
+    )
+  }
+}
+
+@Composable
+private fun FloatingCopyBannerHost(
+  viewModel: SymbolPadViewModel,
+  modifier: Modifier = Modifier,
+) {
+  val copyBanner by viewModel.copyBanner.collectAsStateWithLifecycle()
+  FloatingCopyBanner(
+    banner = copyBanner,
+    onDismiss = viewModel::dismissCopyBanner,
+    modifier = modifier,
+  )
+}
+
+@Composable
+private fun CatalogDetailSheetHost(
+  viewModel: SymbolPadViewModel,
+  copyToClipboard: (String) -> Unit,
+  shareText: (String) -> Unit,
+) {
+  val detailEntry by viewModel.detailEntry.collectAsStateWithLifecycle()
+  detailEntry?.let { entry ->
+    val favoriteGlyphs by viewModel.favoriteGlyphs.collectAsStateWithLifecycle()
+    CatalogDetailSheet(
+      item = entry,
+      isFavorite = favoriteGlyphs.contains(entry.glyph),
+      onDismiss = viewModel::dismissEntryDetail,
+      onCopy = { viewModel.copyText(entry.glyph, entry.name, copyToClipboard) },
+      onAppendToTray = { viewModel.appendEntryToTray(entry) },
+      onToggleFavorite = { viewModel.toggleFavorite(entry) },
+      onShare = { shareText(entry.glyph) },
+    )
   }
 }

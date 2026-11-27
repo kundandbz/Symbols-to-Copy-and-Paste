@@ -4,6 +4,7 @@ import androidx.room.Dao
 import androidx.room.Insert
 import androidx.room.OnConflictStrategy
 import androidx.room.Query
+import androidx.room.Transaction
 import kotlinx.coroutines.flow.Flow
 
 @Dao
@@ -46,6 +47,18 @@ interface VaultDao {
 
   @Query("DELETE FROM recent_copies")
   suspend fun clearRecentCopies()
+
+  @Transaction
+  suspend fun recordCopyTransaction(
+    text: String,
+    sourceLabel: String,
+    now: Long = System.currentTimeMillis(),
+  ) {
+    deleteRecentByText(text)
+    insertRecent(RecentCopyEntity(text = text, sourceLabel = sourceLabel, copiedAt = now))
+    trimRecentCopies()
+    incrementFavoriteUsage(text, now)
+  }
 
   // ── Saved Snippets ──
   @Query("SELECT * FROM saved_snippets ORDER BY createdAt DESC")

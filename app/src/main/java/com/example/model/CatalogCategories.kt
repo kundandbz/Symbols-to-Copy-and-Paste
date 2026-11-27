@@ -1,5 +1,7 @@
 package com.example.model
 
+import androidx.compose.runtime.Immutable
+
 enum class CatalogSection(val label: String) {
   SYMBOLS("Symbols"),
   EMOJIS("Emojis"),
@@ -7,12 +9,14 @@ enum class CatalogSection(val label: String) {
   LENNY("Lenny Faces"),
 }
 
+@Immutable
 data class CatalogCategory(
   val id: String,
   val label: String,
   val badge: String,
 )
 
+@Immutable
 data class CatalogEntry(
   val id: String,
   val glyph: String,
@@ -23,18 +27,61 @@ data class CatalogEntry(
   val tags: List<String>,
   val isWide: Boolean = false,
 ) {
-  val codepointSummary: String
-    get() {
-      val cps = mutableListOf<String>()
-      var i = 0
-      while (i < glyph.length) {
-        val cp = glyph.codePointAt(i)
-        cps.add("U+%04X".format(cp))
-        i += Character.charCount(cp)
+  val codepointSummary: String by lazy(LazyThreadSafetyMode.NONE) {
+    val sb = StringBuilder(16)
+    var count = 0
+    var i = 0
+    while (i < glyph.length) {
+      val cp = glyph.codePointAt(i)
+      count++
+      if (count <= 3) {
+        if (count > 1) sb.append(' ')
+        sb.append("U+")
+        val hex = cp.toString(16).uppercase()
+        for (pad in hex.length until 4) sb.append('0')
+        sb.append(hex)
       }
-      return if (cps.size <= 3) cps.joinToString(" ")
-      else "${cps.take(2).joinToString(" ")} … (${cps.size})"
+      i += Character.charCount(cp)
     }
+    if (count <= 3) {
+      sb.toString()
+    } else {
+      val firstTwo = sb.toString().split(' ').take(2).joinToString(" ")
+      "$firstTwo … ($count)"
+    }
+  }
+
+  val shortCodepoint: String by lazy(LazyThreadSafetyMode.NONE) {
+    if (glyph.isEmpty()) "" else {
+      val cp = glyph.codePointAt(0)
+      val hex = cp.toString(16).uppercase()
+      buildString(8) {
+        append("U+")
+        for (pad in hex.length until 4) append('0')
+        append(hex)
+      }
+    }
+  }
+
+  val shortCategoryLabel: String by lazy(LazyThreadSafetyMode.NONE) {
+    categoryLabel.substringBefore(" ")
+  }
+
+  val searchIndex: String by lazy(LazyThreadSafetyMode.NONE) {
+    buildString(name.length + categoryLabel.length + 48) {
+      append(glyph.lowercase())
+      append(' ')
+      append(name.lowercase())
+      append(' ')
+      append(categoryLabel.lowercase())
+      append(' ')
+      append(codepointSummary.lowercase())
+      for (tag in tags) {
+        append(' ')
+        append(tag)
+      }
+    }
+  }
 }
 
 object SymbolCategories {

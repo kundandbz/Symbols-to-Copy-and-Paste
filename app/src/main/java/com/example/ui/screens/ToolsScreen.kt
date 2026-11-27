@@ -58,6 +58,13 @@ import com.example.ui.theme.JetBrainsMonoFamily
 
 private val fontPresets = listOf("Symbols to Copy", "Aesthetic", "Pro Gamer", "Dreamer", "VIP 2026")
 
+private val invisibleChars = listOf(
+  Triple("Hangul Filler (Blank Name)", "U+3164 · Works for invisible gamer & Discord names", "\u3164"),
+  Triple("Braille Blank Character", "U+2800 · Works for blank WhatsApp messages & bio lines", "\u2800"),
+  Triple("Zero-Width Space", "U+200B · Invisible separator with zero width", "\u200B"),
+  Triple("Invisible Plus Blank (x5)", "5x Hangul Filler for wide blank messages", "\u3164\u3164\u3164\u3164\u3164"),
+)
+
 @Composable
 fun ToolsScreen(
   state: ToolsUiState,
@@ -173,7 +180,7 @@ fun ToolsScreen(
           }
         }
 
-        items(UnicodeFontEngine.styles, key = { it.id }) { style ->
+        items(UnicodeFontEngine.styles, key = { it.id }, contentType = { "font_card" }) { style ->
           val styledCore = remember(effectiveText, style.id) { style.transform(effectiveText) }
           val finalOutput = remember(styledCore, state.activeFontFrame) {
             state.activeFontFrame?.let { "${it.prefix}$styledCore${it.suffix}" } ?: styledCore
@@ -281,7 +288,7 @@ fun ToolsScreen(
           )
         }
 
-        items(BioToolsEngine.frames, key = { it.id }) { frame ->
+        items(BioToolsEngine.frames, key = { it.id }, contentType = { "bio_frame" }) { frame ->
           val wrapped = remember(state.bioInput, frame.id) { frame.wrap(state.bioInput) }
           Surface(
             shape = MaterialTheme.shapes.medium,
@@ -480,14 +487,7 @@ fun ToolsScreen(
           }
         }
 
-        val invisibleChars = listOf(
-          Triple("Hangul Filler (Blank Name)", "U+3164 · Works for invisible gamer & Discord names", "\u3164"),
-          Triple("Braille Blank Character", "U+2800 · Works for blank WhatsApp messages & bio lines", "\u2800"),
-          Triple("Zero-Width Space", "U+200B · Invisible separator with zero width", "\u200B"),
-          Triple("Invisible Plus Blank (x5)", "5x Hangul Filler for wide blank messages", "\u3164\u3164\u3164\u3164\u3164"),
-        )
-
-        items(invisibleChars, key = { it.first }) { (title, desc, payload) ->
+        items(invisibleChars, key = { it.first }, contentType = { "invisible_char" }) { (title, desc, payload) ->
           Surface(
             shape = MaterialTheme.shapes.large,
             color = MaterialTheme.colorScheme.surfaceContainerLowest,

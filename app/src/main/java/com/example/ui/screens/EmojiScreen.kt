@@ -72,18 +72,7 @@ fun EmojiScreen(
     }
   }
 
-  val grouped = remember(state.items, state.selectedCategoryId, state.searchQuery) {
-    if (state.selectedCategoryId == "all" && state.searchQuery.isBlank()) {
-      EmojiCategories.all
-        .filter { it.id != "all" && it.id != "favorites" }
-        .mapNotNull { cat ->
-          val list = state.items.filter { it.categoryId == cat.id }
-          if (list.isEmpty()) null else cat to list
-        }
-    } else {
-      null
-    }
-  }
+  val grouped = state.groupedSections
 
   LazyVerticalGrid(
     state = gridState,
@@ -179,7 +168,7 @@ fun EmojiScreen(
       }
     } else if (grouped != null) {
       grouped.forEach { (category, list) ->
-        item(key = "em_hdr_${category.id}", span = { GridItemSpan(maxLineSpan) }) {
+        item(key = "em_hdr_${category.id}", contentType = "section_header", span = { GridItemSpan(maxLineSpan) }) {
           Row(
             modifier = Modifier
               .fillMaxWidth()
@@ -211,7 +200,7 @@ fun EmojiScreen(
             }
           }
         }
-        items(items = list, key = { it.id }) { entry ->
+        items(items = list, key = { it.id }, contentType = { "emoji_tile" }) { entry ->
           CatalogGlyphTile(
             item = entry,
             isFavorite = favoriteGlyphs.contains(entry.glyph),
@@ -229,7 +218,7 @@ fun EmojiScreen(
         }
       }
     } else {
-      items(items = state.items, key = { it.id }) { entry ->
+      items(items = state.items, key = { it.id }, contentType = { "emoji_tile" }) { entry ->
         CatalogGlyphTile(
           item = entry,
           isFavorite = favoriteGlyphs.contains(entry.glyph),

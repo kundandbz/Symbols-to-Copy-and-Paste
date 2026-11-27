@@ -1,5 +1,6 @@
 package com.example.ui
 
+import androidx.compose.runtime.Immutable
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
@@ -14,6 +15,7 @@ import com.example.data.local.RecentCopyEntity
 import com.example.data.local.SavedSnippetEntity
 import com.example.model.BioFrameTemplate
 import com.example.model.BioToolsEngine
+import com.example.model.CatalogCategory
 import com.example.model.CatalogEntry
 import com.example.model.CatalogSection
 import com.example.model.UnicodeTextUtils
@@ -24,6 +26,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
@@ -43,6 +46,7 @@ enum class FavoriteSortMode(val label: String) {
   RECENT("Recently Added"),
 }
 
+@Immutable
 data class CopyBannerState(
   val text: String,
   val label: String,
@@ -50,25 +54,34 @@ data class CopyBannerState(
   val id: Long = 0L,
 )
 
-data class SymbolsUiState(
-  val searchQuery: String = "",
-  val selectedCategoryId: String = "all",
-  val filteredSymbols: List<CatalogEntry> = emptyList(),
-  val trendingSymbols: List<CatalogEntry> = emptyList(),
-  val categoryCounts: Map<String, Int> = emptyMap(),
-  val favoriteSymbolCount: Int = 0,
-  val totalSymbolCount: Int = 0,
+@Immutable
+data class ComposerUiState(
   val composerText: String = "",
   val isBuildMode: Boolean = false,
 )
 
+@Immutable
+data class SymbolsUiState(
+  val searchQuery: String = "",
+  val selectedCategoryId: String = "all",
+  val filteredSymbols: List<CatalogEntry> = emptyList(),
+  val groupedSections: List<Pair<CatalogCategory, List<CatalogEntry>>>? = null,
+  val trendingSymbols: List<CatalogEntry> = emptyList(),
+  val categoryCounts: Map<String, Int> = emptyMap(),
+  val favoriteSymbolCount: Int = 0,
+  val totalSymbolCount: Int = 0,
+)
+
+@Immutable
 data class SectionBrowseUiState(
   val searchQuery: String = "",
   val selectedCategoryId: String = "all",
   val items: List<CatalogEntry> = emptyList(),
+  val groupedSections: List<Pair<CatalogCategory, List<CatalogEntry>>>? = null,
   val totalCount: Int = 0,
 )
 
+@Immutable
 data class LennyBuilderUiState(
   val earIndex: Int = 0,
   val eyeIndex: Int = 0,
@@ -86,6 +99,7 @@ enum class ToolTab(val label: String) {
   CONVERTERS("Converters"),
 }
 
+@Immutable
 data class ToolsUiState(
   val activeTool: ToolTab = ToolTab.FONTS,
   val fontInput: String = "Symbols to Copy",
@@ -96,6 +110,7 @@ data class ToolsUiState(
   val isMorseDecode: Boolean = false,
 )
 
+@Immutable
 data class VaultUiState(
   val activeTab: Int = 0, // 0 = Favorites, 1 = Recent, 2 = Saved Snippets
   val favoriteSortMode: FavoriteSortMode = FavoriteSortMode.MOST_USED,
@@ -131,7 +146,7 @@ class SymbolPadViewModel(
       initialValue = ThemeSettings(),
     ) ?: _fallbackThemeSettings
 
-  // ── Shared Room Favorites Flows ──
+  // ── Shared Room Favorites Flows (isolated so recentCopies changes don't recompose browse tabs) ──
   private val recentFavoritesFlow: StateFlow<List<FavoriteSymbolEntity>> =
     repository.observeFavorites().stateIn(
       scope = viewModelScope,
@@ -139,128 +154,182 @@ class SymbolPadViewModel(
       initialValue = emptyList(),
     )
 
-  private val mostUsedFavoritesFlow: StateFlow<List<FavoriteSymbolEntity>> =
+  val mostUsedFavorites: StateFlow<List<FavoriteSymbolEntity>> =
     repository.observeFavoritesByMostUsed().stateIn(
       scope = viewModelScope,
       started = SharingStarted.WhileSubscribed(5_000),
       initialValue = emptyList(),
     )
 
-  private val favoriteGlyphsFlow: StateFlow<Set<String>> =
+  val favoriteGlyphs: StateFlow<Set<String>> =
     recentFavoritesFlow
-      .map { list -> list.map { it.glyph }.toSet() }
+      .map { list -> list.mapTo(HashSet(list.size)) { it.glyph } as Set<String> }
+      .distinctUntilChanged()
       .stateIn(
         scope = viewModelScope,
         started = SharingStarted.WhileSubscribed(5_000),
         initialValue = emptySet(),
       )
 
+  val favoritesCount: StateFlow<Int> =
+    recentFavoritesFlow
+      .map { it.size }
+      .distinctUntilChanged()
+      .stateIn(
+        scope = viewModelScope,
+        started = SharingStarted.WhileSubscribed(5_000),
+        initialValue = 0,
+      )
+
+  private val favoriteSymbolCountFlow: StateFlow<Int> =
+    favoriteGlyphs
+      .map { favs -> if (favs.isEmpty()) 0 else repository.allSymbols.count { it.glyph in favs } }
+      .distinctUntilChanged()
+      .stateIn(
+        scope = viewModelScope,
+        started = SharingStarted.WhileSubscribed(5_000),
+        initialValue = 0,
+      )
+
+  // ── Combo Builder Tray State (decoupled from Symbols filtering!) ──
+  private val _composerState = MutableStateFlow(ComposerUiState())
+  val composerState: StateFlow<ComposerUiState> = _composerState
+
   // ── Symbols Tab State ──
   private val _symbolsQuery = MutableStateFlow("")
   private val _symbolsCategoryId = MutableStateFlow("all")
-  private val _composerText = MutableStateFlow("")
-  private val _isBuildMode = MutableStateFlow(false)
 
   val symbolsState: StateFlow<SymbolsUiState> = combine(
     _symbolsQuery,
     _symbolsCategoryId,
-    _composerText,
-    _isBuildMode,
-    favoriteGlyphsFlow,
-  ) { query, catId, composer, buildMode, favGlyphs ->
+    favoriteGlyphs,
+    favoriteSymbolCountFlow,
+  ) { query, catId, favGlyphs, favSymCount ->
+    val isGroupedAll = catId == "all" && query.isBlank()
     SymbolsUiState(
       searchQuery = query,
       selectedCategoryId = catId,
-      filteredSymbols = repository.filterEntries(CatalogSection.SYMBOLS, query, catId, favGlyphs),
+      filteredSymbols = if (isGroupedAll) {
+        repository.allSymbols
+      } else {
+        repository.filterEntries(CatalogSection.SYMBOLS, query, catId, favGlyphs)
+      },
+      groupedSections = if (isGroupedAll) repository.groupedSymbols else null,
       trendingSymbols = repository.trendingSymbols,
       categoryCounts = repository.symbolCategoryCounts,
-      favoriteSymbolCount = repository.allSymbols.count { it.glyph in favGlyphs },
+      favoriteSymbolCount = favSymCount,
       totalSymbolCount = repository.allSymbols.size,
-      composerText = composer,
-      isBuildMode = buildMode,
     )
   }.stateIn(
     scope = viewModelScope,
     started = SharingStarted.WhileSubscribed(5_000),
     initialValue = SymbolsUiState(
       filteredSymbols = repository.allSymbols,
+      groupedSections = repository.groupedSymbols,
       trendingSymbols = repository.trendingSymbols,
       categoryCounts = repository.symbolCategoryCounts,
       totalSymbolCount = repository.allSymbols.size,
     ),
   )
 
-  // ── Emojis Tab State ──
+  // ── Emojis Tab State (lazy so EmojiCatalog is only loaded when Emojis tab is opened) ──
   private val _emojiQuery = MutableStateFlow("")
   private val _emojiCategoryId = MutableStateFlow("all")
 
-  val emojiState: StateFlow<SectionBrowseUiState> = combine(
-    _emojiQuery,
-    _emojiCategoryId,
-    favoriteGlyphsFlow,
-  ) { query, catId, favGlyphs ->
-    SectionBrowseUiState(
-      searchQuery = query,
-      selectedCategoryId = catId,
-      items = repository.filterEntries(CatalogSection.EMOJIS, query, catId, favGlyphs),
-      totalCount = repository.allEmojis.size,
+  val emojiState: StateFlow<SectionBrowseUiState> by lazy(LazyThreadSafetyMode.NONE) {
+    combine(
+      _emojiQuery,
+      _emojiCategoryId,
+      favoriteGlyphs,
+    ) { query, catId, favGlyphs ->
+      val isGroupedAll = catId == "all" && query.isBlank()
+      SectionBrowseUiState(
+        searchQuery = query,
+        selectedCategoryId = catId,
+        items = if (isGroupedAll) {
+          repository.allEmojis
+        } else {
+          repository.filterEntries(CatalogSection.EMOJIS, query, catId, favGlyphs)
+        },
+        groupedSections = if (isGroupedAll) repository.groupedEmojis else null,
+        totalCount = repository.allEmojis.size,
+      )
+    }.stateIn(
+      scope = viewModelScope,
+      started = SharingStarted.WhileSubscribed(5_000),
+      initialValue = SectionBrowseUiState(
+        items = repository.allEmojis,
+        groupedSections = repository.groupedEmojis,
+        totalCount = repository.allEmojis.size,
+      ),
     )
-  }.stateIn(
-    scope = viewModelScope,
-    started = SharingStarted.WhileSubscribed(5_000),
-    initialValue = SectionBrowseUiState(
-      items = repository.allEmojis,
-      totalCount = repository.allEmojis.size,
-    ),
-  )
+  }
 
-  // ── Kaomoji Tab State ──
+  // ── Kaomoji Tab State (lazy so KaomojiCatalog is only loaded when Kaomoji tab is opened) ──
   private val _kaomojiQuery = MutableStateFlow("")
   private val _kaomojiCategoryId = MutableStateFlow("all")
 
-  val kaomojiState: StateFlow<SectionBrowseUiState> = combine(
-    _kaomojiQuery,
-    _kaomojiCategoryId,
-    favoriteGlyphsFlow,
-  ) { query, catId, favGlyphs ->
-    SectionBrowseUiState(
-      searchQuery = query,
-      selectedCategoryId = catId,
-      items = repository.filterEntries(CatalogSection.KAOMOJI, query, catId, favGlyphs),
-      totalCount = repository.allKaomoji.size,
+  val kaomojiState: StateFlow<SectionBrowseUiState> by lazy(LazyThreadSafetyMode.NONE) {
+    combine(
+      _kaomojiQuery,
+      _kaomojiCategoryId,
+      favoriteGlyphs,
+    ) { query, catId, favGlyphs ->
+      val isGroupedAll = catId == "all" && query.isBlank()
+      SectionBrowseUiState(
+        searchQuery = query,
+        selectedCategoryId = catId,
+        items = if (isGroupedAll) {
+          repository.allKaomoji
+        } else {
+          repository.filterEntries(CatalogSection.KAOMOJI, query, catId, favGlyphs)
+        },
+        groupedSections = if (isGroupedAll) repository.groupedKaomoji else null,
+        totalCount = repository.allKaomoji.size,
+      )
+    }.stateIn(
+      scope = viewModelScope,
+      started = SharingStarted.WhileSubscribed(5_000),
+      initialValue = SectionBrowseUiState(
+        items = repository.allKaomoji,
+        groupedSections = repository.groupedKaomoji,
+        totalCount = repository.allKaomoji.size,
+      ),
     )
-  }.stateIn(
-    scope = viewModelScope,
-    started = SharingStarted.WhileSubscribed(5_000),
-    initialValue = SectionBrowseUiState(
-      items = repository.allKaomoji,
-      totalCount = repository.allKaomoji.size,
-    ),
-  )
+  }
 
-  // ── Lenny Tab State ──
+  // ── Lenny Tab State (lazy so LennyCatalog is only loaded when Lenny tab is opened) ──
   private val _lennyQuery = MutableStateFlow("")
   private val _lennyCategoryId = MutableStateFlow("all")
 
-  val lennyState: StateFlow<SectionBrowseUiState> = combine(
-    _lennyQuery,
-    _lennyCategoryId,
-    favoriteGlyphsFlow,
-  ) { query, catId, favGlyphs ->
-    SectionBrowseUiState(
-      searchQuery = query,
-      selectedCategoryId = catId,
-      items = repository.filterEntries(CatalogSection.LENNY, query, catId, favGlyphs),
-      totalCount = repository.allLennyFaces.size,
+  val lennyState: StateFlow<SectionBrowseUiState> by lazy(LazyThreadSafetyMode.NONE) {
+    combine(
+      _lennyQuery,
+      _lennyCategoryId,
+      favoriteGlyphs,
+    ) { query, catId, favGlyphs ->
+      val isGroupedAll = catId == "all" && query.isBlank()
+      SectionBrowseUiState(
+        searchQuery = query,
+        selectedCategoryId = catId,
+        items = if (isGroupedAll) {
+          repository.allLennyFaces
+        } else {
+          repository.filterEntries(CatalogSection.LENNY, query, catId, favGlyphs)
+        },
+        groupedSections = if (isGroupedAll) repository.groupedLenny else null,
+        totalCount = repository.allLennyFaces.size,
+      )
+    }.stateIn(
+      scope = viewModelScope,
+      started = SharingStarted.WhileSubscribed(5_000),
+      initialValue = SectionBrowseUiState(
+        items = repository.allLennyFaces,
+        groupedSections = repository.groupedLenny,
+        totalCount = repository.allLennyFaces.size,
+      ),
     )
-  }.stateIn(
-    scope = viewModelScope,
-    started = SharingStarted.WhileSubscribed(5_000),
-    initialValue = SectionBrowseUiState(
-      items = repository.allLennyFaces,
-      totalCount = repository.allLennyFaces.size,
-    ),
-  )
+  }
 
   private val _lennyBuilder = MutableStateFlow(LennyBuilderUiState())
   val lennyBuilder: StateFlow<LennyBuilderUiState> = _lennyBuilder
@@ -279,63 +348,67 @@ class SymbolPadViewModel(
   private val bannerIdCounter = AtomicLong(0L)
   private var bannerDismissJob: Job? = null
 
-  // ── Vault & Favorites State ──
+  // ── Vault & Favorites State (lazy so recent/snippets Room queries only subscribe on Vault screen) ──
   private val _vaultTab = MutableStateFlow(0)
   private val _favoriteSortMode = MutableStateFlow(FavoriteSortMode.MOST_USED)
   private val _favoritesQuery = MutableStateFlow("")
 
-  private val favoritesSnapshotFlow = combine(
-    _favoriteSortMode,
-    _favoritesQuery,
-    recentFavoritesFlow,
-    mostUsedFavoritesFlow,
-  ) { sortMode, query, recentFavs, mostUsedFavs ->
-    val base = when (sortMode) {
-      FavoriteSortMode.MOST_USED -> mostUsedFavs
-      FavoriteSortMode.RECENT -> recentFavs
-    }
-    val trimmed = query.trim().lowercase()
-    val filtered = if (trimmed.isEmpty()) {
-      base
-    } else {
-      base.filter { fav ->
-        fav.glyph.lowercase().contains(trimmed) ||
-          fav.label.lowercase().contains(trimmed) ||
-          fav.categoryName.lowercase().contains(trimmed)
+  private val favoritesSnapshotFlow by lazy(LazyThreadSafetyMode.NONE) {
+    combine(
+      _favoriteSortMode,
+      _favoritesQuery,
+      recentFavoritesFlow,
+      mostUsedFavorites,
+    ) { sortMode, query, recentFavs, mostUsedFavs ->
+      val base = when (sortMode) {
+        FavoriteSortMode.MOST_USED -> mostUsedFavs
+        FavoriteSortMode.RECENT -> recentFavs
       }
+      val trimmed = query.trim().lowercase()
+      val filtered = if (trimmed.isEmpty()) {
+        base
+      } else {
+        base.filter { fav ->
+          fav.glyph.lowercase().contains(trimmed) ||
+            fav.label.lowercase().contains(trimmed) ||
+            fav.categoryName.lowercase().contains(trimmed)
+        }
+      }
+      FavoritesSnapshot(
+        sortMode = sortMode,
+        query = query,
+        displayed = filtered,
+        totalCount = recentFavs.size,
+        mostUsed = mostUsedFavs,
+        glyphSet = recentFavs.mapTo(HashSet(recentFavs.size)) { it.glyph },
+      )
     }
-    FavoritesSnapshot(
-      sortMode = sortMode,
-      query = query,
-      displayed = filtered,
-      totalCount = recentFavs.size,
-      mostUsed = mostUsedFavs,
-      glyphSet = recentFavs.map { it.glyph }.toSet(),
-    )
   }
 
-  val vaultState: StateFlow<VaultUiState> = combine(
-    _vaultTab,
-    favoritesSnapshotFlow,
-    repository.observeRecentCopies(),
-    repository.observeSnippets(),
-  ) { tab, favSnap, recent, snippets ->
-    VaultUiState(
-      activeTab = tab,
-      favoriteSortMode = favSnap.sortMode,
-      favoritesQuery = favSnap.query,
-      favorites = favSnap.displayed,
-      totalFavoritesCount = favSnap.totalCount,
-      mostUsedFavorites = favSnap.mostUsed,
-      favoriteGlyphs = favSnap.glyphSet,
-      recentCopies = recent,
-      savedSnippets = snippets,
+  val vaultState: StateFlow<VaultUiState> by lazy(LazyThreadSafetyMode.NONE) {
+    combine(
+      _vaultTab,
+      favoritesSnapshotFlow,
+      repository.observeRecentCopies(),
+      repository.observeSnippets(),
+    ) { tab, favSnap, recent, snippets ->
+      VaultUiState(
+        activeTab = tab,
+        favoriteSortMode = favSnap.sortMode,
+        favoritesQuery = favSnap.query,
+        favorites = favSnap.displayed,
+        totalFavoritesCount = favSnap.totalCount,
+        mostUsedFavorites = favSnap.mostUsed,
+        favoriteGlyphs = favSnap.glyphSet,
+        recentCopies = recent,
+        savedSnippets = snippets,
+      )
+    }.stateIn(
+      scope = viewModelScope,
+      started = SharingStarted.WhileSubscribed(5_000),
+      initialValue = VaultUiState(),
     )
-  }.stateIn(
-    scope = viewModelScope,
-    started = SharingStarted.WhileSubscribed(5_000),
-    initialValue = VaultUiState(),
-  )
+  }
 
   // ── Symbols actions ──
   fun onSymbolsQueryChange(query: String) {
@@ -347,25 +420,25 @@ class SymbolPadViewModel(
   }
 
   fun toggleBuildMode(enabled: Boolean) {
-    _isBuildMode.value = enabled
+    _composerState.update { it.copy(isBuildMode = enabled) }
   }
 
   fun onComposerTextChange(text: String) {
-    _composerText.value = text
+    _composerState.update { it.copy(composerText = text) }
   }
 
   fun appendToComposer(text: String) {
-    _composerText.update { it + text }
+    _composerState.update { it.copy(composerText = it.composerText + text) }
   }
 
   fun backspaceComposer() {
-    _composerText.update { current ->
-      UnicodeTextUtils.removeLastGrapheme(current)
+    _composerState.update { current ->
+      current.copy(composerText = UnicodeTextUtils.removeLastGrapheme(current.composerText))
     }
   }
 
   fun clearComposer() {
-    _composerText.value = ""
+    _composerState.update { it.copy(composerText = "") }
   }
 
   // ── Emojis actions ──
@@ -430,7 +503,7 @@ class SymbolPadViewModel(
   }
 
   fun onEntryTapped(entry: CatalogEntry, onCopyToSystemClipboard: (String) -> Unit) {
-    if (_isBuildMode.value) {
+    if (_composerState.value.isBuildMode) {
       appendToComposer(entry.glyph)
       showBanner(text = entry.glyph, label = entry.name, tone = BannerTone.ADDED)
     } else {
@@ -439,8 +512,7 @@ class SymbolPadViewModel(
   }
 
   fun appendEntryToTray(entry: CatalogEntry) {
-    _isBuildMode.value = true
-    appendToComposer(entry.glyph)
+    _composerState.update { it.copy(isBuildMode = true, composerText = it.composerText + entry.glyph) }
     showBanner(text = entry.glyph, label = entry.name, tone = BannerTone.ADDED)
   }
 
@@ -476,7 +548,7 @@ class SymbolPadViewModel(
   }
 
   fun onFavoriteTapped(favorite: FavoriteSymbolEntity, onCopyToSystemClipboard: (String) -> Unit) {
-    if (_isBuildMode.value) {
+    if (_composerState.value.isBuildMode) {
       appendToComposer(favorite.glyph)
       showBanner(text = favorite.glyph, label = favorite.label, tone = BannerTone.ADDED)
     } else {

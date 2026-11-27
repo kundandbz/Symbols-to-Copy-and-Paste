@@ -534,7 +534,7 @@ fun CatalogGlyphTile(
             verticalAlignment = Alignment.CenterVertically,
           ) {
             Text(
-              text = if (isEmoji) item.categoryLabel.substringBefore(" ") else item.codepointSummary.substringBefore(" "),
+              text = if (isEmoji) item.shortCategoryLabel else item.shortCodepoint,
               style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp),
               color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.65f),
               maxLines = 1,

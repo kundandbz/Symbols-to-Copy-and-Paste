@@ -95,6 +95,7 @@ import com.example.data.local.FavoriteSymbolEntity
 import com.example.model.CatalogCategory
 import com.example.model.CatalogEntry
 import com.example.model.SymbolCategories
+import com.example.ui.ComposerUiState
 import com.example.ui.SymbolsUiState
 import com.example.ui.components.CatalogGlyphTile
 import kotlinx.coroutines.delay
@@ -104,6 +105,7 @@ import kotlinx.coroutines.launch
 @Composable
 fun SymbolsScreen(
   state: SymbolsUiState,
+  composerState: ComposerUiState,
   favoriteGlyphs: Set<String>,
   quickFavorites: List<FavoriteSymbolEntity>,
   onSearchQueryChange: (String) -> Unit,
@@ -142,18 +144,7 @@ fun SymbolsScreen(
     SymbolCategories.all.count { it.id != "all" && it.id != "favorites" }
   }
 
-  val groupedByCategory = remember(state.filteredSymbols, state.selectedCategoryId, state.searchQuery) {
-    if (state.selectedCategoryId == "all" && state.searchQuery.isBlank()) {
-      SymbolCategories.all
-        .filter { it.id != "all" && it.id != "favorites" }
-        .mapNotNull { cat ->
-          val items = state.filteredSymbols.filter { it.categoryId == cat.id }
-          if (items.isEmpty()) null else cat to items
-        }
-    } else {
-      null
-    }
-  }
+  val groupedByCategory = state.groupedSections
 
   if (showCategorySheet) {
     CategoryDirectorySheet(
@@ -178,18 +169,18 @@ fun SymbolsScreen(
     modifier = modifier.fillMaxSize(),
   ) {
     // Studio Hero Banner
-    item(span = { GridItemSpan(maxLineSpan) }) {
+    item(key = "hero_banner", contentType = "hero", span = { GridItemSpan(maxLineSpan) }) {
       SymbolsHeroHeader(
         totalSymbolCount = state.totalSymbolCount,
         categoryCount = realCategoryCount,
-        isBuildMode = state.isBuildMode,
+        isBuildMode = composerState.isBuildMode,
         onToggleBuildMode = onToggleBuildMode,
         onOpenWebVersion = onOpenWebVersion,
       )
     }
 
     // Search Bar + Build Mode Tray
-    item(span = { GridItemSpan(maxLineSpan) }) {
+    item(key = "search_and_tray", contentType = "search", span = { GridItemSpan(maxLineSpan) }) {
       Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
         OutlinedTextField(
           value = state.searchQuery,
@@ -231,23 +222,23 @@ fun SymbolsScreen(
             .testTag("symbol_search_input"),
         )
 
-        AnimatedVisibility(visible = state.isBuildMode || state.composerText.isNotEmpty()) {
+        AnimatedVisibility(visible = composerState.isBuildMode || composerState.composerText.isNotEmpty()) {
           ComposerTrayCard(
-            text = state.composerText,
+            text = composerState.composerText,
             onTextChange = onComposerTextChange,
-            onAddSpace = { onComposerTextChange(state.composerText + " ") },
+            onAddSpace = { onComposerTextChange(composerState.composerText + " ") },
             onBackspace = onBackspaceComposer,
             onClear = onClearComposer,
             onSave = {
-              if (state.composerText.isNotEmpty()) {
-                onSaveComposerSnippet(state.composerText)
+              if (composerState.composerText.isNotEmpty()) {
+                onSaveComposerSnippet(composerState.composerText)
                 haptic.performHapticFeedback(HapticFeedbackType.LongPress)
               }
             },
             onCopyAll = {
-              if (state.composerText.isNotEmpty()) {
+              if (composerState.composerText.isNotEmpty()) {
                 haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                onCopyText(state.composerText, "Custom Combo")
+                onCopyText(composerState.composerText, "Custom Combo")
               }
             },
           )
@@ -257,7 +248,7 @@ fun SymbolsScreen(
 
     // Pinned Room-Backed Quick Favorites Strip (sorted by Most Used)
     if (state.searchQuery.isBlank() && state.selectedCategoryId == "all" && quickFavorites.isNotEmpty()) {
-      item(key = "quick_favorites_strip", span = { GridItemSpan(maxLineSpan) }) {
+      item(key = "quick_favorites_strip", contentType = "quick_favs", span = { GridItemSpan(maxLineSpan) }) {
         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
           Row(
             modifier = Modifier.fillMaxWidth(),
@@ -293,7 +284,7 @@ fun SymbolsScreen(
             items(quickFavorites.take(20), key = { "qfav_${it.glyph}" }) { fav ->
               QuickFavoriteChip(
                 favorite = fav,
-                isBuildMode = state.isBuildMode,
+                isBuildMode = composerState.isBuildMode,
                 onTap = {
                   haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
                   onQuickFavoriteTapped(fav)
@@ -307,7 +298,7 @@ fun SymbolsScreen(
 
     // Trending Quick-Copy Strip
     if (state.searchQuery.isBlank() && state.selectedCategoryId == "all") {
-      item(span = { GridItemSpan(maxLineSpan) }) {
+      item(key = "trending_strip", contentType = "trending", span = { GridItemSpan(maxLineSpan) }) {
         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
           Row(
             modifier = Modifier.fillMaxWidth(),
@@ -319,7 +310,7 @@ fun SymbolsScreen(
               style = MaterialTheme.typography.titleSmall,
             )
             Text(
-              text = if (state.isBuildMode) "Tap to append" else "1-tap copy · Hold for info",
+              text = if (composerState.isBuildMode) "Tap to append" else "1-tap copy · Hold for info",
               style = MaterialTheme.typography.bodySmall,
               color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
@@ -328,7 +319,7 @@ fun SymbolsScreen(
             items(state.trendingSymbols, key = { "trend_${it.id}" }) { item ->
               TrendingSymbolChip(
                 item = item,
-                isBuildMode = state.isBuildMode,
+                isBuildMode = composerState.isBuildMode,
                 onTap = {
                   haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
                   onEntryTapped(item)
@@ -341,7 +332,7 @@ fun SymbolsScreen(
     }
 
     // Category Directory Button + Horizontal Category Chips
-    item(span = { GridItemSpan(maxLineSpan) }) {
+    item(key = "category_strip", contentType = "category_strip", span = { GridItemSpan(maxLineSpan) }) {
       Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Row(
           modifier = Modifier.fillMaxWidth(),
@@ -390,7 +381,7 @@ fun SymbolsScreen(
 
     // Either categorized sections (matching website layout!) or single filtered list
     if (state.filteredSymbols.isEmpty()) {
-      item(span = { GridItemSpan(maxLineSpan) }) {
+      item(key = "empty_state", contentType = "empty", span = { GridItemSpan(maxLineSpan) }) {
         if (state.selectedCategoryId == "favorites" && state.searchQuery.isBlank()) {
           EmptyFavoritesFilterCard(
             onBrowseAll = { onCategorySelected("all") },
@@ -408,6 +399,7 @@ fun SymbolsScreen(
       groupedByCategory.forEach { (category, itemsInCategory) ->
         item(
           key = "header_${category.id}",
+          contentType = "section_header",
           span = { GridItemSpan(maxLineSpan) },
         ) {
           Row(
@@ -446,12 +438,13 @@ fun SymbolsScreen(
         items(
           items = itemsInCategory,
           key = { it.id },
+          contentType = { if (it.isWide) "wide_tile" else "compact_tile" },
           span = { item -> if (item.isWide) GridItemSpan(maxLineSpan) else GridItemSpan(1) },
         ) { item ->
           CatalogGlyphTile(
             item = item,
             isFavorite = favoriteGlyphs.contains(item.glyph),
-            isBuildMode = state.isBuildMode,
+            isBuildMode = composerState.isBuildMode,
             onTap = {
               haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
               onEntryTapped(item)
@@ -465,7 +458,7 @@ fun SymbolsScreen(
         }
       }
     } else {
-      item(span = { GridItemSpan(maxLineSpan) }) {
+      item(key = "filtered_header", contentType = "section_header", span = { GridItemSpan(maxLineSpan) }) {
         Row(
           modifier = Modifier.fillMaxWidth(),
           horizontalArrangement = Arrangement.SpaceBetween,
@@ -489,12 +482,13 @@ fun SymbolsScreen(
       items(
         items = state.filteredSymbols,
         key = { it.id },
+        contentType = { if (it.isWide) "wide_tile" else "compact_tile" },
         span = { item -> if (item.isWide) GridItemSpan(maxLineSpan) else GridItemSpan(1) },
       ) { item ->
         CatalogGlyphTile(
           item = item,
           isFavorite = favoriteGlyphs.contains(item.glyph),
-          isBuildMode = state.isBuildMode,
+          isBuildMode = composerState.isBuildMode,
           onTap = {
             haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
             onEntryTapped(item)

@@ -69,18 +69,7 @@ fun KaomojiScreen(
     }
   }
 
-  val grouped = remember(state.items, state.selectedCategoryId, state.searchQuery) {
-    if (state.selectedCategoryId == "all" && state.searchQuery.isBlank()) {
-      KaomojiCategories.all
-        .filter { it.id != "all" && it.id != "favorites" }
-        .mapNotNull { cat ->
-          val list = state.items.filter { it.categoryId == cat.id }
-          if (list.isEmpty()) null else cat to list
-        }
-    } else {
-      null
-    }
-  }
+  val grouped = state.groupedSections
 
   LazyColumn(
     state = listState,
@@ -174,7 +163,7 @@ fun KaomojiScreen(
       }
     } else if (grouped != null) {
       grouped.forEach { (category, list) ->
-        item(key = "km_hdr_${category.id}") {
+        item(key = "km_hdr_${category.id}", contentType = "section_header") {
           Row(
             modifier = Modifier
               .fillMaxWidth()
@@ -207,7 +196,7 @@ fun KaomojiScreen(
             }
           }
         }
-        items(items = list, key = { it.id }) { entry ->
+        items(items = list, key = { it.id }, contentType = { "kaomoji_tile" }) { entry ->
           CatalogGlyphTile(
             item = entry,
             isFavorite = favoriteGlyphs.contains(entry.glyph),
@@ -225,7 +214,7 @@ fun KaomojiScreen(
         }
       }
     } else {
-      items(items = state.items, key = { it.id }) { entry ->
+      items(items = state.items, key = { it.id }, contentType = { "kaomoji_tile" }) { entry ->
         CatalogGlyphTile(
           item = entry,
           isFavorite = favoriteGlyphs.contains(entry.glyph),

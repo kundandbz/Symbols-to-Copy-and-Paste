@@ -98,18 +98,7 @@ fun LennyScreen(
     }
   }
 
-  val grouped = remember(state.items, state.selectedCategoryId, state.searchQuery) {
-    if (state.selectedCategoryId == "all" && state.searchQuery.isBlank()) {
-      LennyCategories.all
-        .filter { it.id != "all" && it.id != "favorites" }
-        .mapNotNull { cat ->
-          val list = state.items.filter { it.categoryId == cat.id }
-          if (list.isEmpty()) null else cat to list
-        }
-    } else {
-      null
-    }
-  }
+  val grouped = state.groupedSections
 
   LazyColumn(
     state = listState,
@@ -345,7 +334,7 @@ fun LennyScreen(
       }
     } else if (grouped != null) {
       grouped.forEach { (category, list) ->
-        item(key = "ln_hdr_${category.id}") {
+        item(key = "ln_hdr_${category.id}", contentType = "section_header") {
           Row(
             modifier = Modifier
               .fillMaxWidth()
@@ -378,7 +367,7 @@ fun LennyScreen(
             }
           }
         }
-        items(items = list, key = { it.id }) { entry ->
+        items(items = list, key = { it.id }, contentType = { "lenny_tile" }) { entry ->
           CatalogGlyphTile(
             item = entry,
             isFavorite = favoriteGlyphs.contains(entry.glyph),
@@ -396,7 +385,7 @@ fun LennyScreen(
         }
       }
     } else {
-      items(items = state.items, key = { it.id }) { entry ->
+      items(items = state.items, key = { it.id }, contentType = { "lenny_tile" }) { entry ->
         CatalogGlyphTile(
           item = entry,
           isFavorite = favoriteGlyphs.contains(entry.glyph),
